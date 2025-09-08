@@ -108,39 +108,21 @@ const Users = () => {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(false);
   const [busyIds, setBusyIds] = useState(new Set());
-  const [message, setMessage] = useState(null);
+  const [msg, setMsg] = useState(null);
 
-  const showMessage = (text, type = "success", ms = 3000) => {
-    setMessage({ text, type });
-    setTimeout(() => setMessage(null), ms);
-  };
-
-  const normalize = (item) => {
-    if (!item || typeof item !== "object") return null;
-    const id = item.id ?? item._id ?? item.request_id ?? null;
-    const username = item.username ?? item.user?.username ?? item.user?.name ?? "—";
-    const group = item.group?.groupname ?? item.group?.name ?? (typeof item.group === "string" ? item.group : "—");
-    const subGroup =
-      item.subGroup?.subGroupname ??
-      item.subGroup?.sub_groupname ??
-      item.subgroup ??
-      item.subGroup ??
-      "—";
-    const status = (item.status ?? item.state ?? "").toString().toUpperCase();
-    return { ...item, id, username, group, subGroup, status };
+  const showMsg = (text, type = "success") => {
+    setMsg({ text, type });
+    setTimeout(() => setMsg(null), 3000);
   };
 
   const loadRequests = async () => {
     setLoading(true);
     try {
-      const res = await api.get("/requests");
-      const arr = Array.isArray(res.data) ? res.data : res.data?.requests ?? [];
-      const normalized = arr.map(normalize).filter(Boolean);
-      // show only pending items
-      setRequests(normalized.filter((r) => r.status === "PENDING"));
+      const res = await api.get("/requests/pending"); // backend must return an array
+      setRequests(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
-      console.error("Failed loading requests:", err);
-      showMessage("Network error while fetching requests", "error");
+      console.error("loadRequests:", err);
+      showMsg("Failed to load pending requests", "error");
       setRequests([]);
     } finally {
       setLoading(false);
@@ -151,39 +133,39 @@ const Users = () => {
     loadRequests();
   }, []);
 
-  const setBusy = (id, val) =>
+  const setBusy = (id, on) =>
     setBusyIds((prev) => {
       const next = new Set(prev);
-      if (val) next.add(id);
+      if (on) next.add(id);
       else next.delete(id);
       return next;
     });
 
   const approve = async (id) => {
-    if (!id) return showMessage("Missing id", "error");
+    if (!id) return;
     try {
       setBusy(id, true);
       await api.put(`/requests/approve/${id}`);
-      setRequests((prev) => prev.filter((r) => r.id !== id));
-      showMessage("Request approved");
+      setRequests((prev) => prev.filter((r) => (r.id ?? r._id) !== id));
+      showMsg("Approved");
     } catch (err) {
-      console.error(err);
-      showMessage("Approve failed", "error");
+      console.error("approve:", err);
+      showMsg("Approve failed", "error");
     } finally {
       setBusy(id, false);
     }
   };
 
   const reject = async (id) => {
-    if (!id) return showMessage("Missing id", "error");
+    if (!id) return;
     try {
       setBusy(id, true);
       await api.delete(`/requests/${id}`);
-      setRequests((prev) => prev.filter((r) => r.id !== id));
-      showMessage("Request rejected");
+      setRequests((prev) => prev.filter((r) => (r.id ?? r._id) !== id));
+      showMsg("Rejected");
     } catch (err) {
-      console.error(err);
-      showMessage("Reject failed", "error");
+      console.error("reject:", err);
+      showMsg("Reject failed", "error");
     } finally {
       setBusy(id, false);
     }
@@ -193,9 +175,9 @@ const Users = () => {
     <div className="p-4">
       <h3 className="fw-bold mb-3">Pending Requests</h3>
 
-      {message && (
-        <div className={`alert ${message.type === "error" ? "alert-danger" : "alert-success"}`} role="alert">
-          {message.text}
+      {msg && (
+        <div className={`alert ${msg.type === "error" ? "alert-danger" : "alert-success"}`}>
+          {msg.text}
         </div>
       )}
 
@@ -213,27 +195,27 @@ const Users = () => {
         </thead>
         <tbody>
           {requests.length === 0 && !loading ? (
-            <tr>
-              <td colSpan={5} className="text-center">
-                No pending requests.
-              </td>
-            </tr>
+            <tr><td colSpan={5} className="text-center">No pending requests.</td></tr>
           ) : (
             requests.map((r, i) => {
-              const id = r.id ?? i;
-              const isBusy = busyIds.has(id);
+              const id = r.id ?? r._id ?? i;
+              const username = r.user?.username ?? r.username ?? "—";
+              const group = r.group?.name ?? r.group?.groupname ?? r.group ?? "—";
+              const subGroup = r.subGroup?.subGroupname ?? r.subGroup?.groupname ?? r.subgroup ?? "—";
+              const busy = busyIds.has(id);
+
               return (
                 <tr key={id}>
                   <td>{i + 1}</td>
-                  <td>{r.username}</td>
-                  <td>{r.group}</td>
-                  <td>{r.subGroup}</td>
+                  <td>{username}</td>
+                  <td>{group}</td>
+                  <td>{subGroup}</td>
                   <td>
-                    <button className="btn btn-sm btn-success me-2" onClick={() => approve(id)} disabled={isBusy}>
-                      {isBusy ? "..." : "Approve"}
+                    <button className="btn btn-sm btn-success me-2" onClick={() => approve(id)} disabled={busy}>
+                      {busy ? "..." : "Approve"}
                     </button>
-                    <button className="btn btn-sm btn-danger" onClick={() => reject(id)} disabled={isBusy}>
-                      {isBusy ? "..." : "Reject"}
+                    <button className="btn btn-sm btn-danger" onClick={() => reject(id)} disabled={busy}>
+                      {busy ? "..." : "Reject"}
                     </button>
                   </td>
                 </tr>
@@ -245,7 +227,6 @@ const Users = () => {
     </div>
   );
 };
-
 
 
 const Groups = () => {
