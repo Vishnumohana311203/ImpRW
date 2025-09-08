@@ -500,43 +500,40 @@ const Groups = () => {
 };
 
 
-/* ===========================
-   === ApprovedRequests component (unchanged) ===
-   =========================== */
+
+const DARK_BLUE = "#0B3D91";
+const DARK_BLUE_HOVER = "#0A357F";
+
 const ApprovedRequests = () => {
-  // local styles (same dark blue for header + button)
-  const DARK_BLUE = "#0B3D91";
-  const DARK_BLUE_HOVER = "#0A357F";
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const [requests, setRequests] = useState([
-    { id: 1, username: "Alice", group: "Wealth", subgroup: "Wealth India" },
-    { id: 2, username: "Bob", group: "Wealth", subgroup: "Wealth Global" },
-    { id: 3, username: "Charlie", group: "Health", subgroup: "Health Plus" },
-    { id: 4, username: "David", group: "Finance", subgroup: "Finance Core" },
-    { id: 5, username: "Eve", group: "Finance", subgroup: "Finance Global" },
-    { id: 6, username: "Frank", group: "Tech", subgroup: "AI Group" },
-    { id: 7, username: "Eva White", group: "Tech", subgroup: "Tech AI" },
-    { id: 8, username: "Frank Black", group: "Finance", subgroup: "Finance Africa" },
-    { id: 9, username: "Grace King", group: "Wealth", subgroup: "Wealth Europe" },
-    { id: 10, username: "Henry Hall", group: "Tech", subgroup: "Tech Security" },
-    { id: 11, username: "Frank", group: "Tech", subgroup: "AI Group" },
-    { id: 12, username: "Eva White", group: "Tech", subgroup: "Tech AI" },
-    { id: 13, username: "Frank Black", group: "Finance", subgroup: "Finance Africa" },
-    { id: 14, username: "Grace King", group: "Wealth", subgroup: "Wealth Europe" },
-    { id: 15, username: "Henry Hall", group: "Tech", subgroup: "Tech Security" },
-  ]);
-
+  // pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const requestsPerPage = 5;
+
+  useEffect(() => {
+    const fetchApproved = async () => {
+      try {
+        const res = await api.get("/approved-users");
+        setRequests(Array.isArray(res.data) ? res.data : []);
+      } catch (err) {
+        console.warn("Could not load approved users", err);
+        setRequests([]); // just show empty table
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchApproved();
+  }, []);
 
   const indexOfLast = currentPage * requestsPerPage;
   const indexOfFirst = indexOfLast - requestsPerPage;
   const currentRequests = requests.slice(indexOfFirst, indexOfLast);
-
-  const totalPages = Math.ceil(requests.length / requestsPerPage);
+  const totalPages = Math.max(1, Math.ceil(requests.length / requestsPerPage));
 
   const handleRemove = (id) => {
-    setRequests(requests.filter((req) => req.id !== id));
+    setRequests((r) => r.filter((x) => x.id !== id));
   };
 
   return (
@@ -560,39 +557,63 @@ const ApprovedRequests = () => {
       <h4 className="fw-bold mb-3">Approved Requests</h4>
 
       <div className="table-responsive">
-        {/* Use plain .table (no .table-bordered) to avoid vertical lines */}
         <table className="table table-hover">
           <thead className="thead-deep-blue">
             <tr>
-              <th>#</th>
+              <th>Sl No</th>
               <th>Username</th>
               <th>Group</th>
-              <th>Subgroup</th>
               <th>Action</th>
             </tr>
           </thead>
           <tbody>
-            {currentRequests.map((req, index) => (
-              <tr key={req.id}>
-                <td>{indexOfFirst + index + 1}</td>
-                <td>{req.username}</td>
-                <td>{req.group}</td>
-                <td>{req.subgroup}</td>
-                <td>
-                  <button className="btn btn-sm btn-deep-blue" onClick={() => handleRemove(req.id)}>
-                    Remove
-                  </button>
+            {loading ? (
+              <tr>
+                <td colSpan="4" className="text-center text-muted">
+                  Loading...
                 </td>
               </tr>
-            ))}
+            ) : currentRequests.length === 0 ? (
+              <tr>
+                <td colSpan="4" className="text-center text-muted">
+                  No approved users to show.
+                </td>
+              </tr>
+            ) : (
+              currentRequests.map((req, idx) => (
+                <tr key={req.id}>
+                  <td>{indexOfFirst + idx + 1}</td>
+                  <td>{req.username ?? "—"}</td>
+                  <td>{req.group ?? "—"}</td>
+                  <td>
+                    <button
+                      className="btn btn-sm btn-deep-blue"
+                      onClick={() => handleRemove(req.id)}
+                    >
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
 
-      <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
+      {totalPages > 1 && (
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+        />
+      )}
     </div>
   );
 };
+
+
+
+
 
 // AdminProfile subcomponent
 const AdminProfile = () => {
