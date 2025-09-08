@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Source System</title>
+  <style>
+    .success { color: green; font-weight: bold; }
+    .error { color: red; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>Source System</h1>
+  <form id="uploadForm">
+    <input type="file" id="files" name="file" multiple required>
+    <button type="submit">Upload</button>
+  </form>
+  <div id="message"></div>
+
+  <script>
+    // File Upload Handler
+    document.getElementById("uploadForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      const files = document.getElementById("files").files;
+      const messageElement = document.getElementById("message");
+
+      if (!files || files.length === 0) {
+        messageElement.innerText = "Please select at least one file!";
+        messageElement.className = "error";
+        return;
+      }
+
+      let fileDetails = "Selected files:\n";
+      for (let i = 0; i < files.length; i++) {
+        fileDetails += ${files[i].name} (${files[i].type}, ${files[i].size} bytes)\n;
+      }
+      console.log(fileDetails);
+
+      const formData = new FormData();
+      for (let i = 0; i < files.length; i++) {
+        // ✅ backend expects file, not files
+        formData.append("file", files[i]);
+      }
+
+      try {
+        messageElement.innerText = "Sending upload request...";
+        const response = await fetch("/upload", { method: "POST", body: formData });
+        const data = await response.json();
+
+        console.log("Upload response:", data);
+        messageElement.innerText = Upload response status: ${response.status}\n${JSON.stringify(data, null, 2)};
+
+        if (data.success) {
+          messageElement.innerText = "Files uploaded successfully!";
+          messageElement.className = "success";
+
+          if (Array.isArray(data.file) && data.file.length > 0) {
+            console.log("Files in response - calling segregation API...");
+            await callSegregationAPI(data.file);
+          } else {
+            console.log("No file information in response, cannot call segregation API.");
+          }
+        } else {
+          messageElement.innerText = "Upload failed: " + data.message;
+          messageElement.className = "error";
+        }
+      } catch (err) {
+        messageElement.innerText = "Error: " + err.message;
+        messageElement.className = "error";
+      }
+    });
+
+    // Segregation API Caller
+    async function callSegregationAPI(files) {
+      const messageElement = document.getElementById("message");
+
+      if (!files || !Array.isArray(files) || files.length === 0) {
+        messageElement.innerText = "Segregation API called with empty files list!";
+        messageElement.className = "error";
+        return;
+      }
+
+      try {
+        // ✅ backend expects { "file": [ { "filename": "...", "filepath": "..." } ] }
+        const segregationPayload = {
+          file: files.map(f => ({
+            filename: f.filename,
+            filepath: f.filepath
+          }))
+        };
+
+        console.log("Segregation request payload:", segregationPayload);
+        messageElement.innerText = "Sending segregation request...";
+
+        const response = await fetch("/segregate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(segregationPayload)
+        });
+
+        const data = await response.json();
+        console.log("Segregation response:", data);
+        messageElement.innerText = Segregation response status: ${response.status}\n${JSON.stringify(data, null, 2)};
+
+        if (data.success) {
+          messageElement.innerText = "Files segregated successfully!";
+          messageElement.className = "success";
+        } else {
+          messageElement.innerText = "Segregation failed: " + (data.message || "Unknown error");
+          messageElement.className = "error";
+        }
+      } catch (err) {
+        messageElement.innerText = "Segregation error: " + err.message;
+        messageElement.className = "error";
+      }
+    }
+  </script>
+</body>
+</html>
