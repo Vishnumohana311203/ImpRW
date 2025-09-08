@@ -174,18 +174,20 @@ const Groups = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  // modal and form states
   const [showModal, setShowModal] = useState(false);
   const [subGroups, setSubGroups] = useState([]);
   const [createError, setCreateError] = useState(null);
 
+  // edit state
+  const [editingGroup, setEditingGroup] = useState(null); // null -> create, object -> editing
   const [currentPage, setCurrentPage] = useState(1);
-  const groupsPerPage = 3;
+  const groupsPerPage = 5;
   const DARK_BLUE = "#0B3D91";
 
-  // helper to get id regardless of backend field name
-  const getId = (item) => item?.id ?? item?._id ?? item?.groupId ?? item?.uuid;
+  // helper to extract id from different field names
+  const getId = (item) => item?.id ?? item?._id ?? item?.groupId ?? item?.uuid ?? item?.id;
 
-  // === Fetch groups on mount ===
   useEffect(() => {
     let mounted = true;
     const fetchGroups = async () => {
@@ -193,13 +195,10 @@ const Groups = () => {
         setLoading(true);
         setError(null);
         const res = await api.get("/admin/groups");
-        // tolerate different response shapes
         const data = res.data?.groups ?? res.data?.data ?? res.data ?? [];
         const arr = Array.isArray(data) ? data : [];
         if (!mounted) return;
         setGroups(arr);
-
-        // log one example so you can inspect exact keys in console
         console.log("Loaded groups (example):", arr[0] ?? "(no groups)");
       } catch (err) {
         console.error("Fetch groups error:", err);
@@ -215,13 +214,13 @@ const Groups = () => {
     };
   }, []);
 
-  // === Pagination calculations ===
+  // pagination
   const indexOfLast = currentPage * groupsPerPage;
   const indexOfFirst = indexOfLast - groupsPerPage;
   const currentGroups = groups.slice(indexOfFirst, indexOfLast);
   const totalPages = Math.max(1, Math.ceil(groups.length / groupsPerPage));
 
-  // === Delete group ===
+  // Delete group (already existed) - unchanged logic but kept here
   const handleDelete = async (group) => {
     const id = getId(group);
     if (!id) {
@@ -232,7 +231,7 @@ const Groups = () => {
     try {
       await api.delete(`/admin/groups/${id}`);
       setGroups((prev) => prev.filter((g) => getId(g) !== id));
-      // adjust page if needed
+      // if last item on page removed, adjust page
       if ((groups.length - 1) <= indexOfFirst && currentPage > 1) {
         setCurrentPage((p) => p - 1);
       }
@@ -242,10 +241,9 @@ const Groups = () => {
     }
   };
 
-  // === Create group (send backend-expected keys: groupname & source_path) ===
+  // Create group (POST)
   const handleCreate = async (payload) => {
     setCreateError(null);
-    // basic validation for subgroup entries
     for (let i = 0; i < (payload.subGroups || []).length; i++) {
       const sg = payload.subGroups[i];
       if (!sg.name || !sg.path) {
@@ -253,37 +251,80 @@ const Groups = () => {
         return;
       }
     }
-
-    // Build payload matching backend field names
+    // backend payload mapping (use sub_groupname since your DB column)
     const backendPayload = {
       groupname: payload.name,
       source_path: payload.path,
       description: payload.description,
       subGroups: (payload.subGroups || []).map((sg) => ({
-        subGroupname: sg.name,
+        sub_groupname: sg.name,
         source_path: sg.path,
         description: sg.description,
       })),
     };
-
     try {
       const res = await api.post("/admin/groups", backendPayload);
-      // tolerate response shapes
       const created = res.data?.group ?? res.data?.data ?? res.data;
       if (!created) {
         setCreateError("Unexpected create response from server");
         console.error("Create response:", res.data);
         return;
       }
-      // prepend created group to UI
       setGroups((prev) => [created, ...prev]);
       setShowModal(false);
       setSubGroups([]);
-      setCurrentPage(1); // show first page so user sees new group
+      setEditingGroup(null);
+      setCurrentPage(1);
     } catch (err) {
       console.error("Create group error:", err);
       setCreateError(err.response?.data?.message || err.message || "Create failed");
     }
+  };
+
+  // Update group (PUT)
+  const handleUpdate = async (id, payload) => {
+    setCreateError(null);
+    try {
+      const backendPayload = {
+        groupname: payload.name,
+        source_path: payload.path,
+        description: payload.description,
+        subGroups: (payload.subGroups || []).map((sg) => ({
+          sub_groupname: sg.name,
+          source_path: sg.path,
+          description: sg.description,
+        })),
+      };
+      const res = await api.put(`/admin/groups/${id}`, backendPayload);
+      const updated = res.data ?? res.data?.group ?? res.data?.data;
+      // If backend returns the updated group as object (common), use that; otherwise use payload
+      const newGroup = updated || { id, ...backendPayload };
+      setGroups((prev) => prev.map((g) => (getId(g) === id ? newGroup : g)));
+      setShowModal(false);
+      setSubGroups([]);
+      setEditingGroup(null);
+    } catch (err) {
+      console.error("Update group error:", err);
+      setCreateError(err.response?.data?.message || err.message || "Update failed");
+    }
+  };
+
+  // when user clicks Edit: prefill modal fields and subgroups
+  const handleEditClick = (group) => {
+    setEditingGroup(group);
+    // prepare subgroups in UI shape (name, path, description)
+    const sg = Array.isArray(group.subGroups)
+      ? group.subGroups.map((s) => ({
+          name: s?.sub_groupname ?? s?.groupname ?? s?.name ?? s?.groupName ?? "",
+          path: s?.source_path ?? s?.path ?? s?.folderPath ?? "",
+          description: s?.description ?? s?.desc ?? "",
+        }))
+      : [];
+    setSubGroups(sg);
+    setCreateError(null);
+    setShowModal(true);
+    // ensure modal shows up on first page so user won't get confused (optional)
+    setCurrentPage(1);
   };
 
   // modal helpers
@@ -293,8 +334,10 @@ const Groups = () => {
     setSubGroups([]);
     setCreateError(null);
     setShowModal(false);
+    setEditingGroup(null);
   };
 
+  // submit handler decides create vs update
   const handleSubmit = (e) => {
     e.preventDefault();
     const form = e.target;
@@ -312,31 +355,48 @@ const Groups = () => {
       setCreateError("Group name and folder path are required.");
       return;
     }
-    handleCreate(payload);
+    if (editingGroup) {
+      const id = getId(editingGroup);
+      if (!id) {
+        setCreateError("Cannot determine editing group's id.");
+        return;
+      }
+      handleUpdate(id, payload);
+    } else {
+      handleCreate(payload);
+    }
   };
 
-  // helper to render according to backend naming
+  // renderer helpers
   const renderName = (group) => group?.groupname ?? group?.name ?? group?.groupName ?? "—";
   const renderPath = (group) => group?.source_path ?? group?.path ?? group?.folderPath ?? "—";
   const renderDescription = (group) => group?.description ?? group?.desc ?? "—";
 
   return (
-    <div className="container mt-2">
+    <div className="container mt-4">
       <style>{`
         .thead-deep-blue th {
           background-color: ${DARK_BLUE};
           color: #fff;
         }
-        /* ensure modal backdrop-like feel */
         .modal-backdrop-fake{
           position: fixed; inset:0; background: rgba(0,0,0,0.4); z-index:1040;
         }
         .modal.d-block { z-index:1045; }
+        .subgroup-indent { padding-left: 2.25rem; } /* for subgroup indentation */
       `}</style>
 
       <div className="d-flex justify-content-between align-items-center mb-3">
         <h4 className="fw-bold">Groups Management</h4>
-        <button className="btn btn-primary" onClick={() => setShowModal(true)}>
+        <button
+          className="btn btn-primary"
+          onClick={() => {
+            setEditingGroup(null);
+            setSubGroups([]);
+            setCreateError(null);
+            setShowModal(true);
+          }}
+        >
           <FaPlus className="me-2" /> Create Group
         </button>
       </div>
@@ -367,15 +427,15 @@ const Groups = () => {
                 <React.Fragment key={gid ?? Math.random()}>
                   <tr className="fw-bold">
                     <td>{renderName(group)}</td>
-                    <td>{renderPath(group)}</td>
+                    <td title={renderPath(group)} style={{ maxWidth: 420, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {renderPath(group)}
+                    </td>
                     <td>{renderDescription(group)}</td>
                     <td>
-                      {/* Edit is a placeholder; can implement PUT flow later */}
-                      <button className="btn btn-sm btn-success me-2">Edit</button>
-                      <button
-                        className="btn btn-sm btn-danger"
-                        onClick={() => handleDelete(group)}
-                      >
+                      <button className="btn btn-sm btn-success me-2" onClick={() => handleEditClick(group)}>
+                        Edit
+                      </button>
+                      <button className="btn btn-sm btn-danger" onClick={() => handleDelete(group)}>
                         Delete
                       </button>
                     </td>
@@ -385,10 +445,12 @@ const Groups = () => {
                     const sid = getId(sub);
                     return (
                       <tr key={sid ?? Math.random()}>
-                        <td className="ps-5">
-                          {sub?.groupname ?? sub?.subGroupname ?? "—"}
+                        <td className="subgroup-indent">
+                          {sub?.sub_groupname ?? sub?.groupname ?? sub?.name ?? sub?.groupName ?? "—"}
                         </td>
-                        <td>{sub?.source_path ?? sub?.path ?? sub?.folderPath ?? "—"}</td>
+                        <td title={sub?.source_path ?? sub?.path ?? sub?.folderPath ?? "—"} style={{ maxWidth: 420, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {sub?.source_path ?? sub?.path ?? sub?.folderPath ?? "—"}
+                        </td>
                         <td>{sub?.description ?? sub?.desc ?? "—"}</td>
                         <td></td>
                       </tr>
@@ -403,39 +465,55 @@ const Groups = () => {
 
       <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
 
-      {/* Modal */}
+      {/* Modal used for both create and edit */}
       {showModal && (
         <>
-          <div className="modal d-block" tabIndex={-1} role="dialog">
-            <div className="modal-dialog modal-lg" role="document">
+          <div className="modal d-block" tabIndex={-1}>
+            <div className="modal-dialog modal-lg">
               <div className="modal-content">
                 <form onSubmit={handleSubmit}>
                   <div className="modal-header">
-                    <h5 className="modal-title">Create New Group</h5>
+                    <h5 className="modal-title">{editingGroup ? "Edit Group" : "Create New Group"}</h5>
                     <button type="button" className="btn-close" onClick={resetModal} />
                   </div>
                   <div className="modal-body">
                     {createError && <div className="alert alert-danger">{createError}</div>}
+
                     <div className="mb-3">
                       <label className="form-label">Group Name *</label>
-                      {/* keep user-friendly input names; we map to backend field names in handleCreate */}
-                      <input type="text" name="groupName" className="form-control" required />
-                    </div>
-                    <div className="mb-3">
-                      <label className="form-label">Folder Path *</label>
-                      <input type="text" name="folderPath" className="form-control" required />
-                    </div>
-                    <div className="mb-3">
-                      <label className="form-label">Description *</label>
-                      <textarea name="description" className="form-control" rows="2" required />
+                      <input
+                        type="text"
+                        name="groupName"
+                        className="form-control"
+                        required
+                        defaultValue={editingGroup ? (editingGroup.groupname ?? editingGroup.name ?? "") : ""}
+                      />
                     </div>
 
                     <div className="mb-3">
-                      <button
-                        className="btn btn-outline-primary"
-                        type="button"
-                        onClick={handleAddSubGroup}
-                      >
+                      <label className="form-label">Folder Path *</label>
+                      <input
+                        type="text"
+                        name="folderPath"
+                        className="form-control"
+                        required
+                        defaultValue={editingGroup ? (editingGroup.source_path ?? editingGroup.path ?? "") : ""}
+                      />
+                    </div>
+
+                    <div className="mb-3">
+                      <label className="form-label">Description *</label>
+                      <textarea
+                        name="description"
+                        className="form-control"
+                        rows="2"
+                        required
+                        defaultValue={editingGroup ? (editingGroup.description ?? editingGroup.desc ?? "") : ""}
+                      />
+                    </div>
+
+                    <div className="mb-3">
+                      <button className="btn btn-outline-primary" type="button" onClick={handleAddSubGroup}>
                         + Add SubGroup
                       </button>
                     </div>
@@ -444,65 +522,31 @@ const Groups = () => {
                       <div key={index} className="mb-4 border p-3 rounded">
                         <div className="d-flex justify-content-between align-items-center mb-2">
                           <h6 className="fw-bold mb-0">SubGroup {index + 1}</h6>
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-outline-danger"
-                            onClick={() => handleRemoveSubGroup(index)}
-                          >
+                          <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => handleRemoveSubGroup(index)}>
                             <FaTrash className="me-1" /> Remove
                           </button>
                         </div>
+
                         <div className="mb-2">
                           <label className="form-label">Name *</label>
-                          <input
-                            type="text"
-                            className="form-control"
-                            required
-                            value={sub.name}
-                            onChange={(e) =>
-                              setSubGroups((prev) =>
-                                prev.map((sg, i) => (i === index ? { ...sg, name: e.target.value } : sg))
-                              )
-                            }
-                          />
+                          <input type="text" className="form-control" required value={sub.name} onChange={(e) => setSubGroups(prev => prev.map((sg,i) => i===index ? {...sg, name: e.target.value} : sg))} />
                         </div>
+
                         <div className="mb-2">
                           <label className="form-label">Folder Path *</label>
-                          <input
-                            type="text"
-                            className="form-control"
-                            required
-                            value={sub.path}
-                            onChange={(e) =>
-                              setSubGroups((prev) =>
-                                prev.map((sg, i) => (i === index ? { ...sg, path: e.target.value } : sg))
-                              )
-                            }
-                          />
+                          <input type="text" className="form-control" required value={sub.path} onChange={(e) => setSubGroups(prev => prev.map((sg,i) => i===index ? {...sg, path: e.target.value} : sg))} />
                         </div>
+
                         <div className="mb-2">
                           <label className="form-label">Description *</label>
-                          <textarea
-                            className="form-control"
-                            rows="2"
-                            required
-                            value={sub.description}
-                            onChange={(e) =>
-                              setSubGroups((prev) =>
-                                prev.map((sg, i) => (i === index ? { ...sg, description: e.target.value } : sg))
-                              )
-                            }
-                          />
+                          <textarea className="form-control" rows="2" required value={sub.description} onChange={(e) => setSubGroups(prev => prev.map((sg,i) => i===index ? {...sg, description: e.target.value} : sg))} />
                         </div>
                       </div>
                     ))}
                   </div>
-
                   <div className="modal-footer">
-                    <button type="button" className="btn btn-secondary" onClick={resetModal}>
-                      Cancel
-                    </button>
-                    <button type="submit" className="btn btn-primary">Create Group</button>
+                    <button type="button" className="btn btn-secondary" onClick={resetModal}>Cancel</button>
+                    <button type="submit" className="btn btn-primary">{editingGroup ? "Save Changes" : "Create Group"}</button>
                   </div>
                 </form>
               </div>
