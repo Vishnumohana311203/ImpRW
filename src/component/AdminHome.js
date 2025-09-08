@@ -169,9 +169,6 @@ const Users = () => {
   );
 };
 
-/* ===========================
-   === Groups (integrated with axios create/delete) ===
-   =========================== */
 const Groups = () => {
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -182,7 +179,7 @@ const Groups = () => {
   const [createError, setCreateError] = useState(null);
 
   const [currentPage, setCurrentPage] = useState(1);
-  const groupsPerPage = 5;
+  const groupsPerPage = 3;
   const DARK_BLUE = "#0B3D91";
 
   // helper to get id regardless of backend field name
@@ -263,7 +260,7 @@ const Groups = () => {
       source_path: payload.path,
       description: payload.description,
       subGroups: (payload.subGroups || []).map((sg) => ({
-        groupname: sg.name,
+        subGroupname: sg.name,
         source_path: sg.path,
         description: sg.description,
       })),
@@ -324,7 +321,7 @@ const Groups = () => {
   const renderDescription = (group) => group?.description ?? group?.desc ?? "—";
 
   return (
-    <div className="container mt-4">
+    <div className="container mt-2">
       <style>{`
         .thead-deep-blue th {
           background-color: ${DARK_BLUE};
@@ -389,7 +386,7 @@ const Groups = () => {
                     return (
                       <tr key={sid ?? Math.random()}>
                         <td className="ps-5">
-                          {sub?.groupname ?? sub?.name ?? sub?.groupName ?? "—"}
+                          {sub?.groupname ?? sub?.subGroupname ?? "—"}
                         </td>
                         <td>{sub?.source_path ?? sub?.path ?? sub?.folderPath ?? "—"}</td>
                         <td>{sub?.description ?? sub?.desc ?? "—"}</td>
@@ -837,6 +834,20 @@ const AdminHome = () => {
         .btn-secondary:hover {
           background-color: #565e64;
         }
+
+        .path-cell {
+          max-width: 320px;         /* adjust width as needed */
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-family: monospace;   /* optional: nicer for file paths */
+        }
+
+        .path-cell--wrap {
+          white-space: normal;      /* if you want to allow wrapping instead */
+          word-break: break-all;
+        }
+
       `}</style>
 
       <div className="d-flex">
