@@ -1,6 +1,7 @@
 // AdminHome.jsx
 
 import React, { useState, useEffect } from "react";
+import axios from "axios";
 import {
   FaUser,
   FaUsers,
@@ -15,10 +16,10 @@ import {
   FaTrash,
 } from "react-icons/fa";
 import "bootstrap/dist/css/bootstrap.min.css";
-import api from "./api"; // axios instance
+import api from "./api"
 
 /* ===========================
-   === Pagination Component (inlined & fixed) ===
+   === Pagination Component (inlined) ===
    =========================== */
 const Pagination = ({ currentPage, totalPages, onPageChange }) => {
   const pages = [];
@@ -34,18 +35,14 @@ const Pagination = ({ currentPage, totalPages, onPageChange }) => {
 
   return (
     <nav>
-      <ul className="pagination justify-content-end">
-        {pages}
-      </ul>
+      <ul className="pagination justify-content-end">{pages}</ul>
     </nav>
   );
 };
 
 /* ===========================
-   === EXISTING SUBCOMPONENTS ===
+   === Dashboard component ===
    =========================== */
-
-// Dashboard component
 const Dashboard = () => (
   <div>
     <h5 className="mb-3 fw-bold">Key Metrics</h5>
@@ -107,7 +104,9 @@ const Dashboard = () => (
   </div>
 );
 
-// Users subcomponent
+/* ===========================
+   === Users subcomponent (static) ===
+   =========================== */
 const Users = () => {
   const requests = [
     { id: 1, name: "John Smith", group: "Wealth Management", date: "15 Aug 2025" },
@@ -148,15 +147,10 @@ const Users = () => {
                   <td>{req.group}</td>
                   <td>{req.date}</td>
                   <td className="text-center">
-                    <button
-                      className="btn btn-sm text-white me-2"
-                      style={{ backgroundColor: "#7b61ff" }}
-                    >
+                    <button className="btn btn-sm text-white me-2" style={{ backgroundColor: "#7b61ff" }}>
                       Approve
                     </button>
-                    <button className="btn btn-sm btn-outline-secondary">
-                      Reject
-                    </button>
+                    <button className="btn btn-sm btn-outline-secondary">Reject</button>
                   </td>
                 </tr>
               ))}
@@ -167,10 +161,7 @@ const Users = () => {
 
       {/* Approve All Button */}
       <div className="text-center mt-4">
-        <button
-          className="btn text-white px-4 py-2"
-          style={{ backgroundColor: "#7b61ff" }}
-        >
+        <button className="btn text-white px-4 py-2" style={{ backgroundColor: "#7b61ff" }}>
           Approve All
         </button>
       </div>
@@ -178,52 +169,58 @@ const Users = () => {
   );
 };
 
-/* ===========================
-   === Groups (integrated with axios create/delete) ===
-   =========================== */
 const Groups = () => {
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  // modal and form states
   const [showModal, setShowModal] = useState(false);
   const [subGroups, setSubGroups] = useState([]);
   const [createError, setCreateError] = useState(null);
 
+  // edit state
+  const [editingGroup, setEditingGroup] = useState(null); // null -> create, object -> editing
   const [currentPage, setCurrentPage] = useState(1);
   const groupsPerPage = 5;
   const DARK_BLUE = "#0B3D91";
 
-  // helper to get id regardless of backend field name
-  const getId = (item) => item?.id ?? item?._id ?? item?.groupId ?? item?.uuid;
+  // helper to extract id from different field names
+  const getId = (item) => item?.id ?? item?._id ?? item?.groupId ?? item?.uuid ?? item?.id;
 
-  // === Fetch groups on mount ===
   useEffect(() => {
+    let mounted = true;
     const fetchGroups = async () => {
       try {
         setLoading(true);
         setError(null);
         const res = await api.get("/admin/groups");
-        // tolerate different response shapes
         const data = res.data?.groups ?? res.data?.data ?? res.data ?? [];
-        setGroups(Array.isArray(data) ? data : []);
+        const arr = Array.isArray(data) ? data : [];
+        if (!mounted) return;
+        setGroups(arr);
+        console.log("Loaded groups (example):", arr[0] ?? "(no groups)");
       } catch (err) {
         console.error("Fetch groups error:", err);
+        if (!mounted) return;
         setError(err.response?.data?.message || err.message || "Failed to fetch groups");
       } finally {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
     };
     fetchGroups();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  // === Pagination calculations ===
+  // pagination
   const indexOfLast = currentPage * groupsPerPage;
   const indexOfFirst = indexOfLast - groupsPerPage;
   const currentGroups = groups.slice(indexOfFirst, indexOfLast);
   const totalPages = Math.max(1, Math.ceil(groups.length / groupsPerPage));
 
-  // === Delete group ===
+  // Delete group (already existed) - unchanged logic but kept here
   const handleDelete = async (group) => {
     const id = getId(group);
     if (!id) {
@@ -234,8 +231,8 @@ const Groups = () => {
     try {
       await api.delete(`/admin/groups/${id}`);
       setGroups((prev) => prev.filter((g) => getId(g) !== id));
-      // adjust page if needed
-      if ((groups.length - 1) <= (indexOfFirst) && currentPage > 1) {
+      // if last item on page removed, adjust page
+      if ((groups.length - 1) <= indexOfFirst && currentPage > 1) {
         setCurrentPage((p) => p - 1);
       }
     } catch (err) {
@@ -244,10 +241,9 @@ const Groups = () => {
     }
   };
 
-  // === Create group (validate and POST) ===
+  // Create group (POST)
   const handleCreate = async (payload) => {
     setCreateError(null);
-    // basic validation for subgroup entries
     for (let i = 0; i < (payload.subGroups || []).length; i++) {
       const sg = payload.subGroups[i];
       if (!sg.name || !sg.path) {
@@ -255,39 +251,100 @@ const Groups = () => {
         return;
       }
     }
-
+    // backend payload mapping (use sub_groupname since your DB column)
+    const backendPayload = {
+      groupname: payload.name,
+      source_path: payload.path,
+      description: payload.description,
+      subGroups: (payload.subGroups || []).map((sg) => ({
+        sub_groupname: sg.name,
+        source_path: sg.path,
+        description: sg.description,
+      })),
+    };
     try {
-      const res = await api.post("/admin/groups", payload);
-      // tolerate response shapes
+      const res = await api.post("/admin/groups", backendPayload);
       const created = res.data?.group ?? res.data?.data ?? res.data;
       if (!created) {
         setCreateError("Unexpected create response from server");
         console.error("Create response:", res.data);
         return;
       }
-      // prepend created group
       setGroups((prev) => [created, ...prev]);
       setShowModal(false);
       setSubGroups([]);
-      setCurrentPage(1); // show first page so user sees new group
+      setEditingGroup(null);
+      setCurrentPage(1);
     } catch (err) {
       console.error("Create group error:", err);
       setCreateError(err.response?.data?.message || err.message || "Create failed");
     }
   };
 
+  // Update group (PUT)
+  const handleUpdate = async (id, payload) => {
+    setCreateError(null);
+    try {
+      const backendPayload = {
+        groupname: payload.name,
+        source_path: payload.path,
+        description: payload.description,
+        subGroups: (payload.subGroups || []).map((sg) => ({
+          sub_groupname: sg.name,
+          source_path: sg.path,
+          description: sg.description,
+        })),
+      };
+      const res = await api.put(`/admin/groups/${id}`, backendPayload);
+      const updated = res.data ?? res.data?.group ?? res.data?.data;
+      // If backend returns the updated group as object (common), use that; otherwise use payload
+      const newGroup = updated || { id, ...backendPayload };
+      setGroups((prev) => prev.map((g) => (getId(g) === id ? newGroup : g)));
+      setShowModal(false);
+      setSubGroups([]);
+      setEditingGroup(null);
+    } catch (err) {
+      console.error("Update group error:", err);
+      setCreateError(err.response?.data?.message || err.message || "Update failed");
+    }
+  };
+
+  // when user clicks Edit: prefill modal fields and subgroups
+  const handleEditClick = (group) => {
+    setEditingGroup(group);
+    // prepare subgroups in UI shape (name, path, description)
+    const sg = Array.isArray(group.subGroups)
+      ? group.subGroups.map((s) => ({
+          name: s?.sub_groupname ?? s?.groupname ?? s?.name ?? s?.groupName ?? "",
+          path: s?.source_path ?? s?.path ?? s?.folderPath ?? "",
+          description: s?.description ?? s?.desc ?? "",
+        }))
+      : [];
+    setSubGroups(sg);
+    setCreateError(null);
+    setShowModal(true);
+    // ensure modal shows up on first page so user won't get confused (optional)
+    setCurrentPage(1);
+  };
+
   // modal helpers
   const handleAddSubGroup = () => setSubGroups((s) => [...s, { name: "", path: "", description: "" }]);
   const handleRemoveSubGroup = (index) => setSubGroups((prev) => prev.filter((_, i) => i !== index));
-  const resetModal = () => { setSubGroups([]); setCreateError(null); setShowModal(false); };
+  const resetModal = () => {
+    setSubGroups([]);
+    setCreateError(null);
+    setShowModal(false);
+    setEditingGroup(null);
+  };
 
+  // submit handler decides create vs update
   const handleSubmit = (e) => {
     e.preventDefault();
     const form = e.target;
     const payload = {
-      name: form.groupName.value.trim(),
-      path: form.folderPath.value.trim(),
-      description: form.description.value.trim(),
+      name: form.groupName?.value?.trim() ?? form.groupname?.value?.trim() ?? "",
+      path: form.folderPath?.value?.trim() ?? form.source_path?.value?.trim() ?? "",
+      description: form.description?.value?.trim() ?? "",
       subGroups: subGroups.map((sg) => ({
         name: sg.name?.trim(),
         path: sg.path?.trim(),
@@ -298,8 +355,22 @@ const Groups = () => {
       setCreateError("Group name and folder path are required.");
       return;
     }
-    handleCreate(payload);
+    if (editingGroup) {
+      const id = getId(editingGroup);
+      if (!id) {
+        setCreateError("Cannot determine editing group's id.");
+        return;
+      }
+      handleUpdate(id, payload);
+    } else {
+      handleCreate(payload);
+    }
   };
+
+  // renderer helpers
+  const renderName = (group) => group?.groupname ?? group?.name ?? group?.groupName ?? "—";
+  const renderPath = (group) => group?.source_path ?? group?.path ?? group?.folderPath ?? "—";
+  const renderDescription = (group) => group?.description ?? group?.desc ?? "—";
 
   return (
     <div className="container mt-4">
@@ -308,16 +379,24 @@ const Groups = () => {
           background-color: ${DARK_BLUE};
           color: #fff;
         }
-        /* ensure modal backdrop-like feel */
         .modal-backdrop-fake{
           position: fixed; inset:0; background: rgba(0,0,0,0.4); z-index:1040;
         }
         .modal.d-block { z-index:1045; }
+        .subgroup-indent { padding-left: 2.25rem; } /* for subgroup indentation */
       `}</style>
 
       <div className="d-flex justify-content-between align-items-center mb-3">
         <h4 className="fw-bold">Groups Management</h4>
-        <button className="btn btn-primary" onClick={() => setShowModal(true)}>
+        <button
+          className="btn btn-primary"
+          onClick={() => {
+            setEditingGroup(null);
+            setSubGroups([]);
+            setCreateError(null);
+            setShowModal(true);
+          }}
+        >
           <FaPlus className="me-2" /> Create Group
         </button>
       </div>
@@ -336,18 +415,26 @@ const Groups = () => {
         </thead>
         <tbody>
           {currentGroups.length === 0 && !loading ? (
-            <tr><td colSpan={4} className="text-center">No groups found.</td></tr>
+            <tr>
+              <td colSpan={4} className="text-center">
+                No groups found.
+              </td>
+            </tr>
           ) : (
             currentGroups.map((group) => {
               const gid = getId(group);
               return (
                 <React.Fragment key={gid ?? Math.random()}>
                   <tr className="fw-bold">
-                    <td>{group.name}</td>
-                    <td>{group.path}</td>
-                    <td>{group.description}</td>
+                    <td>{renderName(group)}</td>
+                    <td title={renderPath(group)} style={{ maxWidth: 420, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {renderPath(group)}
+                    </td>
+                    <td>{renderDescription(group)}</td>
                     <td>
-                      <button className="btn btn-sm btn-success me-2">Edit</button>
+                      <button className="btn btn-sm btn-success me-2" onClick={() => handleEditClick(group)}>
+                        Edit
+                      </button>
                       <button className="btn btn-sm btn-danger" onClick={() => handleDelete(group)}>
                         Delete
                       </button>
@@ -358,9 +445,13 @@ const Groups = () => {
                     const sid = getId(sub);
                     return (
                       <tr key={sid ?? Math.random()}>
-                        <td className="ps-5">{sub.name}</td>
-                        <td>{sub.path}</td>
-                        <td>{sub.description}</td>
+                        <td className="subgroup-indent">
+                          {sub?.sub_groupname ?? sub?.groupname ?? sub?.name ?? sub?.groupName ?? "—"}
+                        </td>
+                        <td title={sub?.source_path ?? sub?.path ?? sub?.folderPath ?? "—"} style={{ maxWidth: 420, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {sub?.source_path ?? sub?.path ?? sub?.folderPath ?? "—"}
+                        </td>
+                        <td>{sub?.description ?? sub?.desc ?? "—"}</td>
                         <td></td>
                       </tr>
                     );
@@ -374,30 +465,51 @@ const Groups = () => {
 
       <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
 
-      {/* Modal */}
+      {/* Modal used for both create and edit */}
       {showModal && (
         <>
-          <div className="modal d-block" tabIndex={-1} role="dialog">
-            <div className="modal-dialog modal-lg" role="document">
+          <div className="modal d-block" tabIndex={-1}>
+            <div className="modal-dialog modal-lg">
               <div className="modal-content">
                 <form onSubmit={handleSubmit}>
                   <div className="modal-header">
-                    <h5 className="modal-title">Create New Group</h5>
-                    <button type="button" className="btn-close" onClick={resetModal}></button>
+                    <h5 className="modal-title">{editingGroup ? "Edit Group" : "Create New Group"}</h5>
+                    <button type="button" className="btn-close" onClick={resetModal} />
                   </div>
                   <div className="modal-body">
                     {createError && <div className="alert alert-danger">{createError}</div>}
+
                     <div className="mb-3">
                       <label className="form-label">Group Name *</label>
-                      <input type="text" name="groupName" className="form-control" required />
+                      <input
+                        type="text"
+                        name="groupName"
+                        className="form-control"
+                        required
+                        defaultValue={editingGroup ? (editingGroup.groupname ?? editingGroup.name ?? "") : ""}
+                      />
                     </div>
+
                     <div className="mb-3">
                       <label className="form-label">Folder Path *</label>
-                      <input type="text" name="folderPath" className="form-control" required />
+                      <input
+                        type="text"
+                        name="folderPath"
+                        className="form-control"
+                        required
+                        defaultValue={editingGroup ? (editingGroup.source_path ?? editingGroup.path ?? "") : ""}
+                      />
                     </div>
+
                     <div className="mb-3">
                       <label className="form-label">Description *</label>
-                      <textarea name="description" className="form-control" rows="2" required></textarea>
+                      <textarea
+                        name="description"
+                        className="form-control"
+                        rows="2"
+                        required
+                        defaultValue={editingGroup ? (editingGroup.description ?? editingGroup.desc ?? "") : ""}
+                      />
                     </div>
 
                     <div className="mb-3">
@@ -414,25 +526,27 @@ const Groups = () => {
                             <FaTrash className="me-1" /> Remove
                           </button>
                         </div>
+
                         <div className="mb-2">
                           <label className="form-label">Name *</label>
-                          <input type="text" className="form-control" required value={sub.name} onChange={(e) => setSubGroups(prev => prev.map((sg,i) => i===index?{...sg, name: e.target.value}:sg))} />
+                          <input type="text" className="form-control" required value={sub.name} onChange={(e) => setSubGroups(prev => prev.map((sg,i) => i===index ? {...sg, name: e.target.value} : sg))} />
                         </div>
+
                         <div className="mb-2">
                           <label className="form-label">Folder Path *</label>
-                          <input type="text" className="form-control" required value={sub.path} onChange={(e) => setSubGroups(prev => prev.map((sg,i) => i===index?{...sg, path: e.target.value}:sg))} />
+                          <input type="text" className="form-control" required value={sub.path} onChange={(e) => setSubGroups(prev => prev.map((sg,i) => i===index ? {...sg, path: e.target.value} : sg))} />
                         </div>
+
                         <div className="mb-2">
                           <label className="form-label">Description *</label>
-                          <textarea className="form-control" rows="2" required value={sub.description} onChange={(e) => setSubGroups(prev => prev.map((sg,i) => i===index?{...sg, description: e.target.value}:sg))}></textarea>
+                          <textarea className="form-control" rows="2" required value={sub.description} onChange={(e) => setSubGroups(prev => prev.map((sg,i) => i===index ? {...sg, description: e.target.value} : sg))} />
                         </div>
                       </div>
                     ))}
                   </div>
-
                   <div className="modal-footer">
                     <button type="button" className="btn btn-secondary" onClick={resetModal}>Cancel</button>
-                    <button type="submit" className="btn btn-primary">Create Group</button>
+                    <button type="submit" className="btn btn-primary">{editingGroup ? "Save Changes" : "Create Group"}</button>
                   </div>
                 </form>
               </div>
@@ -505,6 +619,7 @@ const ApprovedRequests = () => {
       <h4 className="fw-bold mb-3">Approved Requests</h4>
 
       <div className="table-responsive">
+        {/* Use plain .table (no .table-bordered) to avoid vertical lines */}
         <table className="table table-hover">
           <thead className="thead-deep-blue">
             <tr>
@@ -523,10 +638,7 @@ const ApprovedRequests = () => {
                 <td>{req.group}</td>
                 <td>{req.subgroup}</td>
                 <td>
-                  <button
-                    className="btn btn-sm btn-deep-blue"
-                    onClick={() => handleRemove(req.id)}
-                  >
+                  <button className="btn btn-sm btn-deep-blue" onClick={() => handleRemove(req.id)}>
                     Remove
                   </button>
                 </td>
@@ -536,11 +648,7 @@ const ApprovedRequests = () => {
         </table>
       </div>
 
-      <Pagination
-        currentPage={currentPage}
-        totalPages={totalPages}
-        onPageChange={setCurrentPage}
-      />
+      <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
     </div>
   );
 };
@@ -770,6 +878,20 @@ const AdminHome = () => {
         .btn-secondary:hover {
           background-color: #565e64;
         }
+
+        .path-cell {
+          max-width: 320px;         /* adjust width as needed */
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-family: monospace;   /* optional: nicer for file paths */
+        }
+
+        .path-cell--wrap {
+          white-space: normal;      /* if you want to allow wrapping instead */
+          word-break: break-all;
+        }
+
       `}</style>
 
       <div className="d-flex">
