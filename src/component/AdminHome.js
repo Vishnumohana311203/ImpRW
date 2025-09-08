@@ -107,27 +107,40 @@ const Dashboard = () => (
 const Users = () => {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [busyIds, setBusyIds] = useState(new Set()); // to disable buttons per-row when action in progress
-  const [message, setMessage] = useState(null); // { type: 'success' | 'error', text: string }
+  const [busyIds, setBusyIds] = useState(new Set());
+  const [message, setMessage] = useState(null);
 
-  // helper to show message for a few seconds
-  const showMessage = (msg, type = "success", ms = 4000) => {
-    setMessage({ text: msg, type });
+  const showMessage = (text, type = "success", ms = 3000) => {
+    setMessage({ text, type });
     setTimeout(() => setMessage(null), ms);
   };
 
-  // Load pending requests
+  const normalize = (item) => {
+    if (!item || typeof item !== "object") return null;
+    const id = item.id ?? item._id ?? item.request_id ?? null;
+    const username = item.username ?? item.user?.username ?? item.user?.name ?? "—";
+    const group = item.group?.groupname ?? item.group?.name ?? (typeof item.group === "string" ? item.group : "—");
+    const subGroup =
+      item.subGroup?.subGroupname ??
+      item.subGroup?.sub_groupname ??
+      item.subgroup ??
+      item.subGroup ??
+      "—";
+    const status = (item.status ?? item.state ?? "").toString().toUpperCase();
+    return { ...item, id, username, group, subGroup, status };
+  };
+
   const loadRequests = async () => {
     setLoading(true);
     try {
-      const res = await api.get("/requests"); // adjust endpoint if needed
-      const data = Array.isArray(res.data)
-        ? res.data
-        : res.data?.requests ?? res.data?.data ?? [];
-      setRequests(Array.isArray(data) ? data : []);
+      const res = await api.get("/requests");
+      const arr = Array.isArray(res.data) ? res.data : res.data?.requests ?? [];
+      const normalized = arr.map(normalize).filter(Boolean);
+      // show only pending items
+      setRequests(normalized.filter((r) => r.status === "PENDING"));
     } catch (err) {
       console.error("Failed loading requests:", err);
-      showMessage(err.response?.data?.message ?? "Network error while fetching requests", "error");
+      showMessage("Network error while fetching requests", "error");
       setRequests([]);
     } finally {
       setLoading(false);
@@ -138,43 +151,39 @@ const Users = () => {
     loadRequests();
   }, []);
 
-  // mark id as busy/unbusy
-  const setBusy = (id, val) => {
+  const setBusy = (id, val) =>
     setBusyIds((prev) => {
       const next = new Set(prev);
       if (val) next.add(id);
       else next.delete(id);
       return next;
     });
-  };
 
-  // Approve (calls backend then removes request from UI)
   const approve = async (id) => {
-    // If you want an inline confirmation instead of window.confirm you could add a small confirm step in UI.
-    // Here we skip blocking browser-confirm and just call API.
+    if (!id) return showMessage("Missing id", "error");
     try {
       setBusy(id, true);
       await api.put(`/requests/approve/${id}`);
       setRequests((prev) => prev.filter((r) => r.id !== id));
-      showMessage("Request approved.", "success");
+      showMessage("Request approved");
     } catch (err) {
-      console.error("Approve failed:", err);
-      showMessage(err.response?.data?.message ?? "Network error while approving", "error");
+      console.error(err);
+      showMessage("Approve failed", "error");
     } finally {
       setBusy(id, false);
     }
   };
 
-  // Reject: delete pending request
   const reject = async (id) => {
+    if (!id) return showMessage("Missing id", "error");
     try {
       setBusy(id, true);
       await api.delete(`/requests/${id}`);
       setRequests((prev) => prev.filter((r) => r.id !== id));
-      showMessage("Request rejected.", "success");
+      showMessage("Request rejected");
     } catch (err) {
-      console.error("Reject failed:", err);
-      showMessage(err.response?.data?.message ?? "Network error while rejecting", "error");
+      console.error(err);
+      showMessage("Reject failed", "error");
     } finally {
       setBusy(id, false);
     }
@@ -184,12 +193,8 @@ const Users = () => {
     <div className="p-4">
       <h3 className="fw-bold mb-3">Pending Requests</h3>
 
-      {/* Inline message (success/error) */}
       {message && (
-        <div
-          className={`alert ${message.type === "error" ? "alert-danger" : "alert-success"}`}
-          role="alert"
-        >
+        <div className={`alert ${message.type === "error" ? "alert-danger" : "alert-success"}`} role="alert">
           {message.text}
         </div>
       )}
@@ -215,36 +220,19 @@ const Users = () => {
             </tr>
           ) : (
             requests.map((r, i) => {
-              const username = r.username ?? r.user?.username ?? "—";
-              const group = r.group?.groupname ?? r.group?.name ?? r.group ?? "—";
-              const subgroup =
-                r.subGroup?.subGroupname ??
-                r.subGroup?.sub_groupname ??
-                r.subGroup?.groupname ??
-                r.subgroup ??
-                "—";
               const id = r.id ?? i;
               const isBusy = busyIds.has(id);
-
               return (
                 <tr key={id}>
                   <td>{i + 1}</td>
-                  <td>{username}</td>
-                  <td>{group}</td>
-                  <td>{subgroup}</td>
+                  <td>{r.username}</td>
+                  <td>{r.group}</td>
+                  <td>{r.subGroup}</td>
                   <td>
-                    <button
-                      className="btn btn-sm btn-success me-2"
-                      onClick={() => approve(id)}
-                      disabled={isBusy}
-                    >
+                    <button className="btn btn-sm btn-success me-2" onClick={() => approve(id)} disabled={isBusy}>
                       {isBusy ? "..." : "Approve"}
                     </button>
-                    <button
-                      className="btn btn-sm btn-danger"
-                      onClick={() => reject(id)}
-                      disabled={isBusy}
-                    >
+                    <button className="btn btn-sm btn-danger" onClick={() => reject(id)} disabled={isBusy}>
                       {isBusy ? "..." : "Reject"}
                     </button>
                   </td>
@@ -254,10 +242,10 @@ const Users = () => {
           )}
         </tbody>
       </table>
-      {/* Refresh removed as requested */}
     </div>
   );
 };
+
 
 
 const Groups = () => {
