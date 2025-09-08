@@ -104,6 +104,7 @@ const Dashboard = () => (
   </div>
 );
 
+
 const Users = () => {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -125,22 +126,11 @@ const Users = () => {
     loadRequests();
   }, []);
 
-  // helper to get id from a row (uses common field names)
-  const getRowId = (r, fallbackIndex) =>
-    r?.id ?? r?._id ?? r?.requestId ?? r?.request_id ?? fallbackIndex;
-
-  // helper to remove a row by id (compares using same possible fields)
-  const removeRowById = (list, idToRemove) =>
-    list.filter((r) => {
-      const rid = getRowId(r);
-      return rid !== idToRemove;
-    });
-
   const approve = async (id) => {
     try {
       await api.put(`/requests/approve/${id}`);
-      // remove from UI after success using same id resolution
-      setRequests((prev) => removeRowById(prev, id));
+      // remove from UI after success
+      setRequests((prev) => prev.filter((r) => r.requestId !== id));
     } catch (err) {
       console.error("Approve failed:", err);
     }
@@ -150,7 +140,7 @@ const Users = () => {
     try {
       await api.delete(`/requests/${id}`);
       // remove from UI after success
-      setRequests((prev) => removeRowById(prev, id));
+      setRequests((prev) => prev.filter((r) => r.requestId !== id));
     } catch (err) {
       console.error("Reject failed:", err);
     }
@@ -180,33 +170,30 @@ const Users = () => {
               </td>
             </tr>
           ) : (
-            requests.map((r, i) => {
-              const id = getRowId(r, i);
-              return (
-                <tr key={id}>
-                  <td>{i + 1}</td>
-                  <td>{r.user?.name ?? "—"}</td>
-                  <td>{r.group?.name ?? "—"}</td>
-                  <td>{r.note ?? "—"}</td>
-                  <td>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-success me-2"
-                      onClick={() => approve(id)}
-                    >
-                      Approve
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-danger"
-                      onClick={() => reject(id)}
-                    >
-                      Reject
-                    </button>
-                  </td>
-                </tr>
-              );
-            })
+            requests.map((r, i) => (
+              <tr key={r.requestId}>
+                <td>{i + 1}</td>
+                <td>{r.user?.name ?? "—"}</td>
+                <td>{r.group?.name ?? "—"}</td>
+                <td>{r.note ?? "—"}</td>
+                <td>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-success me-2"
+                    onClick={() => approve(r.requestId)}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-danger"
+                    onClick={() => reject(r.requestId)}
+                  >
+                    Reject
+                  </button>
+                </td>
+              </tr>
+            ))
           )}
         </tbody>
       </table>
