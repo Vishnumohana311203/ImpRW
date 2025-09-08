@@ -184,7 +184,7 @@ const Groups = () => {
   const groupsPerPage = 5;
   const DARK_BLUE = "#0B3D91";
 
-  const getId = (item) => item?.id ?? item?._id ?? item?.groupId ?? item?.uuid ?? item?.id;
+  const getId = (item) => item?.id ?? item?._id ?? item?.groupId ?? item?.uuid ?? item?.subGroupId ?? item?.sub_group_id ?? null;
 
   useEffect(() => {
     let mounted = true;
@@ -226,7 +226,7 @@ const Groups = () => {
     }
   };
 
-  // Create (POST) — always send subGroupname
+  // Create (POST) — include id where present (new subgroups will have id: null)
   const handleCreate = async (payload) => {
     setCreateError(null);
     for (let i = 0; i < (payload.subGroups || []).length; i++) {
@@ -241,6 +241,8 @@ const Groups = () => {
       source_path: payload.path,
       description: payload.description,
       subGroups: (payload.subGroups || []).map((sg) => ({
+        // include id if present (null/undefined for newly added ones)
+        id: sg.id ?? null,
         subGroupname: sg.name,
         source_path: sg.path,
         description: sg.description,
@@ -256,11 +258,11 @@ const Groups = () => {
       setEditingGroup(null);
       setCurrentPage(1);
     } catch (err) {
-      setCreateError(err.response?.data?.message || err.message || "Create failed");
+      setCreateError(err.response?.data?.message || (err.response?.data && JSON.stringify(err.response.data)) || err.message || "Create failed");
     }
   };
 
-  // Update (PUT) — always send subGroupname
+  // Update (PUT) — include id for subgroups so backend can update not delete
   const handleUpdate = async (id, payload) => {
     setCreateError(null);
     const backendPayload = {
@@ -268,6 +270,7 @@ const Groups = () => {
       source_path: payload.path,
       description: payload.description,
       subGroups: (payload.subGroups || []).map((sg) => ({
+        id: sg.id ?? null,                 // <-- important: preserve existing subgroup ids
         subGroupname: sg.name,
         source_path: sg.path,
         description: sg.description,
@@ -275,26 +278,27 @@ const Groups = () => {
     };
     try {
       const res = await api.put(`/admin/groups/${id}`, backendPayload);
-      const updated = res.data ?? res.data?.group ?? res.data?.data;
-      const newGroup = updated || { id, ...backendPayload };
-      setGroups((prev) => prev.map((g) => (getId(g) === id ? newGroup : g)));
+      // prefer server-returned object, fallback to constructed object
+      const updated = res.data?.group ?? res.data?.data ?? res.data ?? { id, ...backendPayload };
+      setGroups((prev) => prev.map((g) => (getId(g) === id ? updated : g)));
       setShowModal(false);
       setSubGroups([]);
       setEditingGroup(null);
     } catch (err) {
-      setCreateError(err.response?.data?.message || err.message || "Update failed");
+      setCreateError(err.response?.data?.message || (err.response?.data && JSON.stringify(err.response.data)) || err.message || "Update failed");
     }
   };
 
-  // On Edit: prefill modal using subGroupname exclusively
+  // On Edit: prefill modal using subgroup id + subGroupname (and sensible fallbacks)
   const handleEditClick = (group) => {
     setEditingGroup(group);
     const raw = group.subGroups ?? []; // assume backend returns an array
     const sg = Array.isArray(raw)
       ? raw.map((s) => ({
-          name: s?.subGroupname ?? "",           // <-- USE subGroupname ONLY (fallback to empty string)
-          path: s?.source_path ?? "",
-          description: s?.description ?? "",
+          id: s?.id ?? s?.subGroupId ?? s?.sub_group_id ?? s?.uuid ?? null,
+          name: s?.subGroupname ?? s?.sub_groupname ?? s?.groupname ?? s?.name ?? "",
+          path: s?.source_path ?? s?.path ?? s?.folderPath ?? "",
+          description: s?.description ?? s?.desc ?? "",
         }))
       : [];
     setSubGroups(sg);
@@ -303,7 +307,7 @@ const Groups = () => {
     setCurrentPage(1);
   };
 
-  const handleAddSubGroup = () => setSubGroups((s) => [...s, { name: "", path: "", description: "" }]);
+  const handleAddSubGroup = () => setSubGroups((s) => [...s, { id: null, name: "", path: "", description: "" }]);
   const handleRemoveSubGroup = (index) => setSubGroups((prev) => prev.filter((_, i) => i !== index));
   const resetModal = () => { setSubGroups([]); setCreateError(null); setShowModal(false); setEditingGroup(null); };
 
@@ -314,7 +318,7 @@ const Groups = () => {
       name: form.groupName?.value?.trim() ?? "",
       path: form.folderPath?.value?.trim() ?? "",
       description: form.description?.value?.trim() ?? "",
-      subGroups: subGroups.map((sg) => ({ name: sg.name?.trim(), path: sg.path?.trim(), description: sg.description?.trim() })),
+      subGroups: subGroups.map((sg) => ({ id: sg.id ?? null, name: sg.name?.trim(), path: sg.path?.trim(), description: sg.description?.trim() })),
     };
     if (!payload.name || !payload.path) { setCreateError("Group name and folder path are required."); return; }
     if (editingGroup) {
@@ -324,8 +328,8 @@ const Groups = () => {
     } else handleCreate(payload);
   };
 
-  const renderName = (group) => group?.groupname ?? "—";
-  const renderPath = (group) => group?.source_path ?? "—";
+  const renderName = (group) => group?.groupname ?? group?.name ?? "—";
+  const renderPath = (group) => group?.source_path ?? group?.path ?? "—";
   const renderDescription = (group) => group?.description ?? "—";
 
   return (
@@ -357,9 +361,9 @@ const Groups = () => {
             <tr><td colSpan={4} className="text-center">No groups found.</td></tr>
           ) : (
             currentGroups.map((group) => {
-              const gid = getId(group);
+              const gid = getId(group) ?? Math.random();
               return (
-                <React.Fragment key={gid ?? Math.random()}>
+                <React.Fragment key={gid}>
                   <tr className="fw-bold">
                     <td>{renderName(group)}</td>
                     <td className="ellipsis" title={renderPath(group)}>{renderPath(group)}</td>
@@ -374,9 +378,9 @@ const Groups = () => {
                     const sid = getId(sub) ?? `${gid}-sub-${idx}`;
                     return (
                       <tr key={sid}>
-                        <td className="subgroup-indent">{sub?.subGroupname ?? "—"}</td>
-                        <td className="ellipsis" title={sub?.source_path ?? ""}>{sub?.source_path ?? ""}</td>
-                        <td>{sub?.description ?? ""}</td>
+                        <td className="subgroup-indent">{sub?.subGroupname ?? sub?.sub_groupname ?? sub?.groupname ?? sub?.name ?? "—"}</td>
+                        <td className="ellipsis" title={sub?.source_path ?? sub?.path ?? ""}>{sub?.source_path ?? sub?.path ?? ""}</td>
+                        <td>{sub?.description ?? sub?.desc ?? ""}</td>
                         <td></td>
                       </tr>
                     );
@@ -406,17 +410,17 @@ const Groups = () => {
 
                     <div className="mb-3">
                       <label className="form-label">Group Name *</label>
-                      <input type="text" name="groupName" className="form-control" required defaultValue={editingGroup ? (editingGroup.groupname ?? "") : ""} />
+                      <input type="text" name="groupName" className="form-control" required defaultValue={editingGroup ? (editingGroup.groupname ?? editingGroup.name ?? "") : ""} />
                     </div>
 
                     <div className="mb-3">
                       <label className="form-label">Folder Path *</label>
-                      <input type="text" name="folderPath" className="form-control" required defaultValue={editingGroup ? (editingGroup.source_path ?? "") : ""} />
+                      <input type="text" name="folderPath" className="form-control" required defaultValue={editingGroup ? (editingGroup.source_path ?? editingGroup.path ?? "") : ""} />
                     </div>
 
                     <div className="mb-3">
                       <label className="form-label">Description *</label>
-                      <textarea name="description" className="form-control" rows="2" required defaultValue={editingGroup ? (editingGroup.description ?? "") : ""} />
+                      <textarea name="description" className="form-control" rows="2" required defaultValue={editingGroup ? (editingGroup.description ?? editingGroup.desc ?? "") : ""} />
                     </div>
 
                     <div className="mb-3">
@@ -462,6 +466,7 @@ const Groups = () => {
     </div>
   );
 };
+
 
 /* ===========================
    === ApprovedRequests component (unchanged) ===
