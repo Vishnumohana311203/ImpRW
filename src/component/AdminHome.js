@@ -104,72 +104,162 @@ const Dashboard = () => (
   </div>
 );
 
-/* ===========================
-   === Users subcomponent (static) ===
-   =========================== */
 const Users = () => {
-  const requests = [
-    { id: 1, name: "John Smith", group: "Wealth Management", date: "15 Aug 2025" },
-    { id: 2, name: "Priya K.", group: "Investments", date: "14 Aug 2025" },
-    { id: 3, name: "Arjun Mehta", group: "Client Portfolio", date: "12 Aug 2025" },
-  ];
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [busyIds, setBusyIds] = useState(new Set()); // to disable buttons per-row when action in progress
+  const [message, setMessage] = useState(null); // { type: 'success' | 'error', text: string }
+
+  // helper to show message for a few seconds
+  const showMessage = (msg, type = "success", ms = 4000) => {
+    setMessage({ text: msg, type });
+    setTimeout(() => setMessage(null), ms);
+  };
+
+  // Load pending requests
+  const loadRequests = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get("/requests"); // adjust endpoint if needed
+      const data = Array.isArray(res.data)
+        ? res.data
+        : res.data?.requests ?? res.data?.data ?? [];
+      setRequests(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Failed loading requests:", err);
+      showMessage(err.response?.data?.message ?? "Network error while fetching requests", "error");
+      setRequests([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadRequests();
+  }, []);
+
+  // mark id as busy/unbusy
+  const setBusy = (id, val) => {
+    setBusyIds((prev) => {
+      const next = new Set(prev);
+      if (val) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+
+  // Approve (calls backend then removes request from UI)
+  const approve = async (id) => {
+    // If you want an inline confirmation instead of window.confirm you could add a small confirm step in UI.
+    // Here we skip blocking browser-confirm and just call API.
+    try {
+      setBusy(id, true);
+      await api.put(`/requests/approve/${id}`);
+      setRequests((prev) => prev.filter((r) => r.id !== id));
+      showMessage("Request approved.", "success");
+    } catch (err) {
+      console.error("Approve failed:", err);
+      showMessage(err.response?.data?.message ?? "Network error while approving", "error");
+    } finally {
+      setBusy(id, false);
+    }
+  };
+
+  // Reject: delete pending request
+  const reject = async (id) => {
+    try {
+      setBusy(id, true);
+      await api.delete(`/requests/${id}`);
+      setRequests((prev) => prev.filter((r) => r.id !== id));
+      showMessage("Request rejected.", "success");
+    } catch (err) {
+      console.error("Reject failed:", err);
+      showMessage(err.response?.data?.message ?? "Network error while rejecting", "error");
+    } finally {
+      setBusy(id, false);
+    }
+  };
 
   return (
     <div className="p-4">
-      <h3 className="fw-bold mb-4">User Access Request</h3>
+      <h3 className="fw-bold mb-3">Pending Requests</h3>
 
-      {/* Search Bar */}
-      <div className="mb-3">
-        <input
-          type="text"
-          className="form-control shadow-sm"
-          placeholder="Search..."
-          style={{ maxWidth: "300px" }}
-        />
-      </div>
+      {/* Inline message (success/error) */}
+      {message && (
+        <div
+          className={`alert ${message.type === "error" ? "alert-danger" : "alert-success"}`}
+          role="alert"
+        >
+          {message.text}
+        </div>
+      )}
 
-      {/* Requests Table */}
-      <div className="card shadow-sm border-0">
-        <div className="card-body p-0">
-          <table className="table align-middle mb-0">
-            <thead className="bg-light">
-              <tr>
-                <th className="px-4">User Name</th>
-                <th>Group Requested</th>
-                <th>Requested Date</th>
-                <th className="text-center">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {requests.map((req) => (
-                <tr key={req.id}>
-                  <td className="px-4">{req.name}</td>
-                  <td>{req.group}</td>
-                  <td>{req.date}</td>
-                  <td className="text-center">
-                    <button className="btn btn-sm text-white me-2" style={{ backgroundColor: "#7b61ff" }}>
-                      Approve
+      {loading ? <p>Loading...</p> : null}
+
+      <table className="table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Username</th>
+            <th>Group</th>
+            <th>Subgroup</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {requests.length === 0 && !loading ? (
+            <tr>
+              <td colSpan={5} className="text-center">
+                No pending requests.
+              </td>
+            </tr>
+          ) : (
+            requests.map((r, i) => {
+              const username = r.username ?? r.user?.username ?? "—";
+              const group = r.group?.groupname ?? r.group?.name ?? r.group ?? "—";
+              const subgroup =
+                r.subGroup?.subGroupname ??
+                r.subGroup?.sub_groupname ??
+                r.subGroup?.groupname ??
+                r.subgroup ??
+                "—";
+              const id = r.id ?? i;
+              const isBusy = busyIds.has(id);
+
+              return (
+                <tr key={id}>
+                  <td>{i + 1}</td>
+                  <td>{username}</td>
+                  <td>{group}</td>
+                  <td>{subgroup}</td>
+                  <td>
+                    <button
+                      className="btn btn-sm btn-success me-2"
+                      onClick={() => approve(id)}
+                      disabled={isBusy}
+                    >
+                      {isBusy ? "..." : "Approve"}
                     </button>
-                    <button className="btn btn-sm btn-outline-secondary">Reject</button>
+                    <button
+                      className="btn btn-sm btn-danger"
+                      onClick={() => reject(id)}
+                      disabled={isBusy}
+                    >
+                      {isBusy ? "..." : "Reject"}
+                    </button>
                   </td>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Approve All Button */}
-      <div className="text-center mt-4">
-        <button className="btn text-white px-4 py-2" style={{ backgroundColor: "#7b61ff" }}>
-          Approve All
-        </button>
-      </div>
+              );
+            })
+          )}
+        </tbody>
+      </table>
+      {/* Refresh removed as requested */}
     </div>
   );
 };
 
-/* --- Replace your existing Groups component with this --- */
+
 const Groups = () => {
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(false);
