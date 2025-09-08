@@ -104,176 +104,57 @@ const Dashboard = () => (
   </div>
 );
 
-/**
- * Debug-friendly Users component.
- * - Logs every row object and chosen id
- * - Logs the full URL used for axios.put
- * - Tries multiple id fields (id, _id, requestId, request_id)
- * - Shows clear console output on success / 404 / other errors
- *
- * Paste this in, run, click Approve on each row, then check Console+Network.
- */
 const Users = () => {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [busyIds, setBusyIds] = useState(new Set());
-  const [msg, setMsg] = useState(null);
-
-  const showMsg = (text, type = "success") => {
-    setMsg({ text, type });
-    setTimeout(() => setMsg(null), 3000);
-  };
 
   const loadRequests = async () => {
     setLoading(true);
     try {
       const res = await api.get("/requests/pending");
-      const arr = Array.isArray(res.data) ? res.data : [];
-      console.log("[loadRequests] got rows:", arr.length);
-      setRequests(arr);
+      setRequests(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
-      console.error("loadRequests error:", err);
-      showMsg("Failed to load pending requests", "error");
+      console.error("Failed to load requests:", err);
       setRequests([]);
     } finally {
       setLoading(false);
     }
   };
 
-  // pick an id for the given row object (robust)
-  const extractId = (r) => {
-    if (!r || typeof r !== "object") return null;
-    return (
-      r.id ??
-      r._id ??
-      r.requestId ??
-      r.request_id ??
-      r.requestid ??
-      (r.idStr ? (isNaN(Number(r.idStr)) ? r.idStr : Number(r.idStr)) : null) ??
-      null
-    );
-  };
-
-  // Get baseURL for debug (may be undefined)
-  const getBase = () => (api && api.defaults && api.defaults.baseURL) ? api.defaults.baseURL.replace(/\/$/, "") : "";
-
   useEffect(() => {
     loadRequests();
   }, []);
 
-  const setBusy = (id, on) =>
-    setBusyIds((prev) => {
-      const next = new Set(prev);
-      if (on) next.add(id);
-      else next.delete(id);
-      return next;
-    });
-
-  // APPROVE using axios; logs everything
-  const approve = async (row) => {
-    console.log("[approve] row:", row);
-    const id = extractId(row);
-    console.log("[approve] extracted id:", id);
-
-    if (!id) {
-      console.warn("[approve] missing id for row — not calling API", row);
-      showMsg("Approve failed: missing id (see console)", "error");
-      return;
-    }
-
-    const urlPath = `/requests/approve/${id}`;
-    const fullUrl = (getBase() ? `${getBase()}${urlPath}` : urlPath);
-    console.log("[approve] calling axios.put ->", fullUrl);
-
-    setBusy(id, true);
+  const approve = async (id) => {
     try {
-      const res = await api.put(urlPath);
-      console.log("[approve] axios response:", res?.status, res?.data);
-      // successful, remove from UI (or reload)
-      setRequests((prev) => prev.filter((r) => {
-        const rid = extractId(r);
-        return (rid ?? rid) !== id;
-      }));
-      showMsg("Approved");
+      await api.put(`/requests/approve/${id}`);
+      // remove from UI after success
+      setRequests((prev) => prev.filter((r) => r.id !== id));
     } catch (err) {
-      console.error("[approve] axios error:", err);
-      // if 404, log full details
-      const status = err?.response?.status;
-      if (status === 404) {
-        console.warn("[approve] 404 — check the route and id. Request URL:", fullUrl);
-        console.warn("[approve] server response body:", err.response?.data);
-        showMsg("Approve failed: not found (404)", "error");
-      } else if (status === 401 || status === 403) {
-        showMsg("Approve failed: unauthorized", "error");
-      } else if (!err?.response) {
-        // no response — axios didn't send or network error
-        console.warn("[approve] no response from axios — maybe baseURL/interceptor issue");
-        showMsg("Approve failed: network or axios error (see console)", "error");
-      } else {
-        showMsg("Approve failed", "error");
-      }
-    } finally {
-      setBusy(id, false);
+      console.error("Approve failed:", err);
     }
   };
 
-  // REJECT similar pattern
-  const reject = async (row) => {
-    console.log("[reject] row:", row);
-    const id = extractId(row);
-    console.log("[reject] extracted id:", id);
-
-    if (!id) {
-      console.warn("[reject] missing id for row — not calling API", row);
-      showMsg("Reject failed: missing id (see console)", "error");
-      return;
-    }
-
-    const urlPath = `/requests/${id}`;
-    const fullUrl = (getBase() ? `${getBase()}${urlPath}` : urlPath);
-    console.log("[reject] calling axios.delete ->", fullUrl);
-
-    setBusy(id, true);
+  const reject = async (id) => {
     try {
-      const res = await api.delete(urlPath);
-      console.log("[reject] axios response:", res?.status, res?.data);
-      setRequests((prev) => prev.filter((r) => {
-        const rid = extractId(r);
-        return (rid ?? rid) !== id;
-      }));
-      showMsg("Rejected");
+      await api.delete(`/requests/${id}`);
+      // remove from UI after success
+      setRequests((prev) => prev.filter((r) => r.id !== id));
     } catch (err) {
-      console.error("[reject] axios error:", err);
-      const status = err?.response?.status;
-      if (status === 404) {
-        console.warn("[reject] 404 — check the route and id. Request URL:", fullUrl);
-        showMsg("Reject failed: not found (404)", "error");
-      } else if (!err?.response) {
-        console.warn("[reject] no response from axios — maybe baseURL/interceptor issue");
-        showMsg("Reject failed: network or axios error (see console)", "error");
-      } else showMsg("Reject failed", "error");
-    } finally {
-      setBusy(id, false);
+      console.error("Reject failed:", err);
     }
   };
 
   return (
     <div className="p-4">
-      <h3 className="fw-bold mb-3">Pending Requests (debug)</h3>
+      <h3 className="fw-bold mb-3">Pending Requests</h3>
 
-      {msg && (
-        <div className={`alert ${msg.type === "error" ? "alert-danger" : "alert-success"}`}>
-          {msg.text}
-        </div>
-      )}
-
-      {loading && <p>Loading...</p>}
+      {loading ? <p>Loading...</p> : null}
 
       <table className="table">
         <thead>
           <tr>
             <th>#</th>
-            <th>RAW ROW (console)</th>
             <th>Username</th>
             <th>Group</th>
             <th>Note</th>
@@ -282,60 +163,39 @@ const Users = () => {
         </thead>
         <tbody>
           {requests.length === 0 && !loading ? (
-            <tr><td colSpan={6} className="text-center">No pending requests.</td></tr>
+            <tr>
+              <td colSpan={5} className="text-center">
+                No pending requests.
+              </td>
+            </tr>
           ) : (
-            requests.map((r, i) => {
-              const id = extractId(r) ?? `idx-${i}`;
-              const username = r.user?.name ?? r.username ?? "—";
-              const group = r.group?.name ?? r.group?.groupname ?? r.group ?? "—";
-              const note = r.note ?? r.message ?? "—";
-              const busy = busyIds.has(id);
-
-              return (
-                <tr key={id}>
-                  <td>{i + 1}</td>
-                  <td>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-outline-secondary"
-                      onClick={() => console.log("[ROW DUMP]", r)}
-                    >
-                      Dump Row
-                    </button>
-                  </td>
-                  <td>{username}</td>
-                  <td>{group}</td>
-                  <td>{note}</td>
-                  <td>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-success me-2"
-                      onClick={() => approve(r)}
-                      disabled={busy}
-                    >
-                      {busy ? "..." : "Approve"}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-danger"
-                      onClick={() => reject(r)}
-                      disabled={busy}
-                    >
-                      {busy ? "..." : "Reject"}
-                    </button>
-                  </td>
-                </tr>
-              );
-            })
+            requests.map((r, i) => (
+              <tr key={r.id}>
+                <td>{i + 1}</td>
+                <td>{r.user?.name ?? "—"}</td>
+                <td>{r.group?.name ?? "—"}</td>
+                <td>{r.note ?? "—"}</td>
+                <td>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-success me-2"
+                    onClick={() => approve(r.id)}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-danger"
+                    onClick={() => reject(r.id)}
+                  >
+                    Reject
+                  </button>
+                </td>
+              </tr>
+            ))
           )}
         </tbody>
       </table>
-
-      <div style={{ marginTop: 12 }}>
-        <small>
-          Debug tips: click "Dump Row" to print the raw object. After clicking Approve, copy Console logs and the Network URL for the failing request and paste them here.
-        </small>
-      </div>
     </div>
   );
 };
