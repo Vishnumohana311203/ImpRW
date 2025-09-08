@@ -104,7 +104,6 @@ const Dashboard = () => (
   </div>
 );
 
-
 const Users = () => {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -122,7 +121,7 @@ const Users = () => {
       const res = await api.get("/requests/pending");
       setRequests(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
-      console.error("loadRequests:", err);
+      console.error("loadRequests error:", err);
       showMsg("Failed to load pending requests", "error");
       setRequests([]);
     } finally {
@@ -146,11 +145,13 @@ const Users = () => {
     if (!id) return;
     try {
       setBusy(id, true);
+      console.log("[approve] sending PUT to /requests/approve/" + id);
       await api.put(`/requests/approve/${id}`);
+      // remove from UI after success
       setRequests((prev) => prev.filter((r) => (r.id ?? r._id) !== id));
       showMsg("Approved");
     } catch (err) {
-      console.error("approve:", err);
+      console.error("approve error:", err);
       showMsg("Approve failed", "error");
     } finally {
       setBusy(id, false);
@@ -161,11 +162,13 @@ const Users = () => {
     if (!id) return;
     try {
       setBusy(id, true);
+      console.log("[reject] sending DELETE to /requests/" + id);
       await api.delete(`/requests/${id}`);
+      // remove from UI after success
       setRequests((prev) => prev.filter((r) => (r.id ?? r._id) !== id));
       showMsg("Rejected");
     } catch (err) {
-      console.error("reject:", err);
+      console.error("reject error:", err);
       showMsg("Reject failed", "error");
     } finally {
       setBusy(id, false);
@@ -190,29 +193,21 @@ const Users = () => {
             <th>#</th>
             <th>Username</th>
             <th>Group</th>
-            <th>Note</th> {/* changed header to Note */}
+            <th>Note</th>
             <th>Actions</th>
           </tr>
         </thead>
         <tbody>
           {requests.length === 0 && !loading ? (
-            <tr><td colSpan={5} className="text-center">No pending requests.</td></tr>
+            <tr>
+              <td colSpan={5} className="text-center">No pending requests.</td>
+            </tr>
           ) : (
             requests.map((r, i) => {
               const id = r.id ?? r._id ?? i;
-
-              // Use user.name (your DB uses "name"), fallback to other common fields
-              const username =
-                r.user?.name ??
-                r.user?.username ??
-                r.username ??
-                "—";
-
+              const username = r.user?.name ?? r.username ?? "—";
               const group = r.group?.name ?? r.group?.groupname ?? r.group ?? "—";
-
-              // show the note text — check common field names
               const note = r.note ?? r.message ?? r.requestNote ?? "—";
-
               const busy = busyIds.has(id);
 
               return (
@@ -220,12 +215,22 @@ const Users = () => {
                   <td>{i + 1}</td>
                   <td>{username}</td>
                   <td>{group}</td>
-                  <td>{note}</td> {/* now shows note */}
+                  <td>{note}</td>
                   <td>
-                    <button className="btn btn-sm btn-success me-2" onClick={() => approve(id)} disabled={busy}>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-success me-2"
+                      onClick={() => approve(id)}
+                      disabled={busy}
+                    >
                       {busy ? "..." : "Approve"}
                     </button>
-                    <button className="btn btn-sm btn-danger" onClick={() => reject(id)} disabled={busy}>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-danger"
+                      onClick={() => reject(id)}
+                      disabled={busy}
+                    >
                       {busy ? "..." : "Reject"}
                     </button>
                   </td>
@@ -238,6 +243,7 @@ const Users = () => {
     </div>
   );
 };
+
 
 
 
