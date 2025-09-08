@@ -104,6 +104,7 @@ const Dashboard = () => (
   </div>
 );
 
+
 const Users = () => {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -118,7 +119,7 @@ const Users = () => {
   const loadRequests = async () => {
     setLoading(true);
     try {
-      const res = await api.get("/requests/pending"); // backend must return an array
+      const res = await api.get("/requests/pending");
       setRequests(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
       console.error("loadRequests:", err);
@@ -189,7 +190,7 @@ const Users = () => {
             <th>#</th>
             <th>Username</th>
             <th>Group</th>
-            <th>Subgroup</th>
+            <th>Note</th> {/* changed header to Note */}
             <th>Actions</th>
           </tr>
         </thead>
@@ -199,9 +200,19 @@ const Users = () => {
           ) : (
             requests.map((r, i) => {
               const id = r.id ?? r._id ?? i;
-              const username = r.user?.username ?? r.username ?? "—";
+
+              // Use user.name (your DB uses "name"), fallback to other common fields
+              const username =
+                r.user?.name ??
+                r.user?.username ??
+                r.username ??
+                "—";
+
               const group = r.group?.name ?? r.group?.groupname ?? r.group ?? "—";
-              const subGroup = r.subGroup?.subGroupname ?? r.subGroup?.groupname ?? r.subgroup ?? "—";
+
+              // show the note text — check common field names
+              const note = r.note ?? r.message ?? r.requestNote ?? "—";
+
               const busy = busyIds.has(id);
 
               return (
@@ -209,7 +220,7 @@ const Users = () => {
                   <td>{i + 1}</td>
                   <td>{username}</td>
                   <td>{group}</td>
-                  <td>{subGroup}</td>
+                  <td>{note}</td> {/* now shows note */}
                   <td>
                     <button className="btn btn-sm btn-success me-2" onClick={() => approve(id)} disabled={busy}>
                       {busy ? "..." : "Approve"}
@@ -227,6 +238,7 @@ const Users = () => {
     </div>
   );
 };
+
 
 
 const Groups = () => {
