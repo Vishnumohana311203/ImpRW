@@ -515,7 +515,7 @@ const ApprovedRequests = () => {
   useEffect(() => {
     const fetchApproved = async () => {
       try {
-        const res = await api.get("/approved-users");
+        const res = await api.get("/requests/approvedusers");
         setRequests(Array.isArray(res.data) ? res.data : []);
       } catch (err) {
         console.warn("Could not load approved users", err);
@@ -532,9 +532,24 @@ const ApprovedRequests = () => {
   const currentRequests = requests.slice(indexOfFirst, indexOfLast);
   const totalPages = Math.max(1, Math.ceil(requests.length / requestsPerPage));
 
-  const handleRemove = (id) => {
-    setRequests((r) => r.filter((x) => x.id !== id));
-  };
+const handleRemove = async (requestId) => {
+  if (!window.confirm("Remove this user's access to the group?")) return;
+
+  try {
+    await api.delete(`/requests/remove/${requestId}`); 
+    setRequests((prev) => prev.filter((r) => r.id !== requestId));
+
+    const remaining = requests.length - 1;
+    const newTotalPages = Math.max(1, Math.ceil(remaining / requestsPerPage));
+    if (currentPage > newTotalPages) {
+      setCurrentPage(newTotalPages);
+    }
+  } catch (err) {
+    console.error("Failed to remove user:", err);
+    alert("Could not remove user. Please try again.");
+  }
+};
+
 
   return (
     <div className="container mt-1">
@@ -584,11 +599,11 @@ const ApprovedRequests = () => {
                 <tr key={req.id}>
                   <td>{indexOfFirst + idx + 1}</td>
                   <td>{req.username ?? "—"}</td>
-                  <td>{req.group ?? "—"}</td>
+                  <td>{req.groupname ?? "—"}</td>
                   <td>
                     <button
                       className="btn btn-sm btn-deep-blue"
-                      onClick={() => handleRemove(req.id)}
+                      onClick={() => handleRemove(req.requestId)}
                     >
                       Remove
                     </button>
